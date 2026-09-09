@@ -113,8 +113,19 @@ int legacy_ble_rx(uint8_t *val, uint16_t len)
 
 	if (c == 1) {
 		data_legacy_t *d = (data_legacy_t *)data;
-		n = bigendian16_sum(d->sizes, 8);
-		data_len = LEGACY_HEADER_SIZE + LED_ROWS * n;
+		uint32_t total_n = bigendian16_sum(d->sizes, 8);
+		uint32_t calc_len = LEGACY_HEADER_SIZE + LED_ROWS * total_n;
+		if (calc_len > DATA_FLASH_MAX_SIZE) {
+			char buf[48];
+			int blen = snprintf(buf, sizeof(buf), "BLE: payload too large\n");
+			cdc_tx_poll((uint8_t *)buf, blen, 10);
+			free(data);
+			data = NULL;
+			c = 0;
+			return -3;
+		}
+		n = (uint16_t)total_n;
+		data_len = (uint16_t)calc_len;
 		char buf[48];
 		int blen = snprintf(buf, sizeof(buf), "BLE: data_len=%d\n", data_len);
 		cdc_tx_poll((uint8_t *)buf, blen, 10);
@@ -123,6 +134,7 @@ int legacy_ble_rx(uint8_t *val, uint16_t len)
 			char buf2[32];
 			int blen2 = snprintf(buf2, sizeof(buf2), "BLE: realloc failed\n");
 			cdc_tx_poll((uint8_t *)buf2, blen2, 10);
+			c = 0;
 			return -3;
 		}
 	}
@@ -133,10 +145,12 @@ int legacy_ble_rx(uint8_t *val, uint16_t len)
 		cdc_tx_poll((uint8_t *)buf, blen, 10);
 		data_legacy_t *d = (data_legacy_t *)data;
 		RTC_InitTime(2000 + ((d->timestamp[0] - 208 + 256) % 256), d->timestamp[1], d->timestamp[2], d->timestamp[3], d->timestamp[4], d->timestamp[5]);
-		data_flatSave(data, data_len);
+		uint32_t r = data_flatSave(data, data_len);
 		free(data);
 		data = NULL;
-		handle_after_rx();
+		if (r == 0) {
+			handle_after_rx();
+		}
 	}
 
 	c++;
@@ -166,15 +180,36 @@ int legacy_usb_rx(uint8_t *buf, uint16_t len)
 
 	if (!data_len) {
 		data_legacy_t *d = (data_legacy_t *)data;
-		uint16_t n = bigendian16_sum(d->sizes, 8);
-		data_len = LEGACY_HEADER_SIZE + LED_ROWS * n;
-		data = realloc(data, data_len);
+		uint32_t total_n = bigendian16_sum(d->sizes, 8);
+		uint32_t calc_len = LEGACY_HEADER_SIZE + LED_ROWS * total_n;
+		if (calc_len > DATA_FLASH_MAX_SIZE) {
+			free(data);
+			data = NULL;
+			rx_len = 0;
+			data_len = 0;
+			return -1;
+		}
+		data_len = (uint16_t)calc_len;
+		uint8_t *new_data = realloc(data, data_len);
+		if (!new_data) {
+			free(data);
+			data = NULL;
+			rx_len = 0;
+			data_len = 0;
+			return -1;
+		}
+		data = new_data;
 	}
 
 	if ((rx_len > LEGACY_HEADER_SIZE) && rx_len >= data_len) {
-		data_flatSave(data, data_len);
+		uint32_t r = data_flatSave(data, data_len);
 		free(data);
-		handle_after_rx();
+		data = NULL;
+		rx_len = 0;
+		data_len = 0;
+		if (r == 0) {
+			handle_after_rx();
+		}
 	}
 	return 0;
 }
