@@ -128,15 +128,17 @@ int legacy_ble_rx(uint8_t *val, uint16_t len)
 		data_len = (uint16_t)calc_len;
 		char buf[48];
 		int blen = snprintf(buf, sizeof(buf), "BLE: data_len=%d\n", data_len);
-		cdc_tx_poll((uint8_t *)buf, blen, 10);
-		data = realloc(data, data_len);
-		if (!data) {
+		uint8_t *new_data = realloc(data, data_len);
+		if (!new_data) {
 			char buf2[32];
 			int blen2 = snprintf(buf2, sizeof(buf2), "BLE: realloc failed\n");
 			cdc_tx_poll((uint8_t *)buf2, blen2, 10);
+			free(data);
+			data = NULL;
 			c = 0;
 			return -3;
 		}
+		data = new_data;
 	}
 
 	if (c > 2 && ((c+1) * LEGACY_TRANSFER_WIDTH) >= data_len) {
