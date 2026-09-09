@@ -175,6 +175,18 @@ int legacy_usb_rx(uint8_t *buf, uint16_t len)
 		int init_len = len > LEGACY_HEADER_SIZE ? len : sizeof(data_legacy_t);
 		init_len += MAX_PACKET_SIZE;
 		data = malloc(init_len);
+		if (!data) {
+			rx_len = 0;
+			return -1;
+		}
+	}
+
+	if (data_len && (rx_len + len > data_len)) {
+		free(data);
+		data = NULL;
+		rx_len = 0;
+		data_len = 0;
+		return -1;
 	}
 
 	memcpy(data + rx_len, buf, len);
